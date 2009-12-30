@@ -251,8 +251,12 @@ from urlparse import urljoin
 import os
 import sys
 import datetime
-import BeautifulSoup
 import re
+try:
+  import BeautifulSoup
+  soup_ok=True
+except:
+  soup_ok=False
 
 
 
@@ -837,11 +841,11 @@ class TopShelf(Epub):
       tag = tag.parent
 
 
-if __name__ == '__main__':
-  help = """NAME
+help = """NAME
 
     topshelf -h
     topshelf [OPTIONS ...] [--] URL ...
+    topshelf [--gui] (not yet implemented)
 
 DESCRIPTION
 
@@ -860,16 +864,19 @@ OPTIONS
     -r, --raw
         Raw pages (don't detect TopShelf BigCloset layout
 
-    -a, --accept REGEXP
-        Only download url from this prefix
-
     -d, --delete REGEXP
-        Don't download url from this prefix
+        Don't download url from this prefix (high priority)
+
+    -a, --accept REGEXP
+        Only download url from this prefix (low priority)
 
     -s, --skip
         Skip first page
 
     --replace SEARCH REPLACEMENT
+
+    --gui
+	Start the GUI (not yet implemented)
 
     -o OUTFILE
         use OUTFILE as filename for the resulting epub e-book
@@ -883,6 +890,12 @@ SEE ALSO
 
 """;
 
+def main(argv):
+
+  if not soup_ok:
+    print "package beautifulSoup not found"
+    return 1
+
   url = []
   obsoletes = []
   outfile = None
@@ -895,8 +908,7 @@ SEE ALSO
   replace = []
   meta = {}
   i = 1
-  argc = len(sys.argv)
-  argv = sys.argv
+  argc = len(argv)
   while i < argc:
     arg = argv[i]
     if arg == "-o":
@@ -904,7 +916,7 @@ SEE ALSO
       outfile = argv[i]
     elif arg == "-h" or arg == "--help":
       print help
-      sys.exit(0)
+      return 0
     elif arg == "-r" or arg == "--raw":
       layout = None
     elif arg == "-c" or arg == "--continue":
@@ -953,7 +965,7 @@ SEE ALSO
 
   if not len(url):
     print "You should specify a URL"
-    sys.exit(1)
+    return 1
 
   for u in url:
     print "E-Book URL: %s" % u
@@ -994,6 +1006,145 @@ SEE ALSO
 
   #print ts.navigation
   ts.writeout(outfile)
+
+try:
+  import Tkinter as Tk
+  import tkMessageBox
+  gui_ok=True
+except:
+  gui_ok=False
+
+class tk_gui:
+
+  def create_text(self, root):
+    frame = Tk.Frame(root)
+
+    sc_h = Tk.Scrollbar(frame, orient=Tk.HORIZONTAL)
+    sc_h.grid(row=1, column=0, sticky=Tk.E+Tk.W)
+    sc_v = Tk.Scrollbar(frame)
+    sc_v.grid(row=0, column=1, sticky=Tk.N+Tk.S)
+
+    text = Tk.Text(frame, wrap=Tk.NONE)
+    text.grid(row=0, column=0, sticky=Tk.N+Tk.S+Tk.E+Tk.W)
+    text.config(xscrollcommand=sc_h.set, yscrollcommand=sc_v.set)
+    sc_h.config(command=text.xview)
+    sc_v.config(command=text.yview)
+
+    return frame, text
+
+  def __init__(self, root):
+
+    all = Tk.N+Tk.S+Tk.E+Tk.W
+
+    frame_opt = Tk.Frame(root); frame_opt.grid(row=0, column=0, sticky=all)
+    frame_btn = Tk.Frame(root); frame_btn.grid(row=1, column=0, sticky=all)
+
+    row = 0
+
+    label = Tk.Label(frame_opt, text="URL (one per line)");
+    label.grid(row=row, column=0, sticky=Tk.W)
+    text_url, text_url_t = self.create_text(frame_opt)
+    text_url_t.config(height=2, width=60)
+    text_url.grid(row=row, column=1, columnspan=2, sticky=Tk.W+Tk.E)
+    row+=1
+
+    label = Tk.Label(frame_opt, text="Metadata");
+    label.grid(row=row, column=0, sticky=Tk.W)
+    text_url, text_url_t = self.create_text(frame_opt)
+    text_url_t.config(height=2, width=60)
+    text_url.grid(row=row, column=1, sticky=Tk.W+Tk.E)
+    label = Tk.Label(frame_opt, text="(-m) auto detected\nUse name=value, one per line, epub name", justify=Tk.LEFT);
+    label.grid(row=row, column=2, sticky=Tk.W)
+    row+=1
+
+    label = Tk.Label(frame_opt, text="Title");
+    label.grid(row=row, column=0, sticky=Tk.W)
+    entry_title = Tk.Entry(frame_opt)
+    entry_title.grid(row=row, column=1, sticky=Tk.W+Tk.E)
+    label = Tk.Label(frame_opt, text="(-m title=...) auto detected");
+    label.grid(row=row, column=2, sticky=Tk.W)
+    row+=1
+
+    label = Tk.Label(frame_opt, text="Author");
+    label.grid(row=row, column=0, sticky=Tk.W)
+    entry_creator = Tk.Entry(frame_opt)
+    entry_creator.grid(row=row, column=1, sticky=Tk.W+Tk.E)
+    label = Tk.Label(frame_opt, text="(-m creator=...) auto detected");
+    label.grid(row=row, column=2, sticky=Tk.W)
+    row+=1
+
+    label = Tk.Label(frame_opt, text="Reject");
+    label.grid(row=row, column=0, sticky=Tk.W)
+    entry_delete = Tk.Entry(frame_opt)
+    entry_delete.grid(row=row, column=1, sticky=Tk.W+Tk.E)
+    label = Tk.Label(frame_opt, text="(--delete)");
+    label.grid(row=row, column=2, sticky=Tk.W)
+    row+=1
+
+    label = Tk.Label(frame_opt, text="Accept");
+    label.grid(row=row, column=0, sticky=Tk.W)
+    entry_accept = Tk.Entry(frame_opt)
+    entry_accept.grid(row=row, column=1, sticky=Tk.W+Tk.E)
+    label = Tk.Label(frame_opt, text="(--accept)");
+    label.grid(row=row, column=2, sticky=Tk.W)
+    row+=1
+
+    label = Tk.Label(frame_opt, text="Replace in HTML code");
+    label.grid(row=row, column=0, sticky=Tk.W)
+    frame_replace = Tk.Frame(frame_opt)
+    frame_replace.grid(row=row, column=1, sticky=Tk.W+Tk.E)
+    label = Tk.Label(frame_opt, text="(--replace)\nThe replacement text must match the pattern line by line", justify=Tk.LEFT);
+    label.grid(row=row, column=2, sticky=Tk.W)
+    label = Tk.Label(frame_replace, text="Pattern");
+    label.grid(row=0, column=0, sticky=Tk.W)
+    label = Tk.Label(frame_replace, text="Replacement");
+    label.grid(row=0, column=1, sticky=Tk.W)
+    text_pattern, text_pattern_t = self.create_text(frame_replace)
+    text_pattern_t.config(height=2, width=30)
+    text_pattern.grid(row=1, column=0, sticky=Tk.W+Tk.E)
+    text_replacement, text_replacement_t = self.create_text(frame_replace)
+    text_replacement_t.config(height=2, width=30)
+    text_replacement.grid(row=1, column=1, sticky=Tk.W+Tk.E)
+    row+=1
+
+    op_cont = Tk.Checkbutton(frame_opt, text="Ignore downloading errors (--continue)")
+    op_cont.grid(row=row, column=0, columnspan=3, sticky=Tk.W)
+    row+=1
+    op_bcts = Tk.Checkbutton(frame_opt, text="TopShelf BigCloset page (not --raw)")
+    op_bcts.select()
+    op_bcts.grid(row=row, column=0, columnspan=3, sticky=Tk.W)
+    row+=1
+    op_skip = Tk.Checkbutton(frame_opt, text="Skip the first page, only download linked pages (--skip)")
+    op_skip.grid(row=row, column=0, columnspan=3, sticky=Tk.W)
+    row+=1
+    op_out  = Tk.Checkbutton(frame_opt, text="Choose filename (-o)")
+    op_out .grid(row=row, column=0, columnspan=3, sticky=Tk.W)
+    row+=1
+
+    button_close = Tk.Button(frame_btn, text="Close", command=root.quit)
+    button_close.pack(side=Tk.RIGHT, fill=Tk.X)
+    button_run   = Tk.Button(frame_btn, text="Run")
+    button_run  .pack(side=Tk.RIGHT, fill=Tk.X)
+
+
+
+def gui():
+  if not gui_ok:
+    print "Tkinter not available"
+    return 1
+  if not soup_ok:
+    tkMessageBox.showerror("Error", "Package BeautifulSoup not available")
+    return 1
+  root=Tk.Tk()
+  tk_gui(root)
+  root.mainloop()
+  return 0
+
+if __name__ == '__main__':
+  if len(sys.argv) == 2 and sys.argv[1] == "--gui" or len(sys.argv) == 1:
+    sys.exit(gui())
+  else:
+    sys.exit(main(sys.argv))
 
 #######################################################################
 ## Copyright (c) 2009 Mildred Ki'Lya <mildred593(at)online.fr>
