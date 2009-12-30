@@ -1010,11 +1010,97 @@ def main(argv):
 try:
   import Tkinter as Tk
   import tkMessageBox
+  import tkFileDialog
   gui_ok=True
 except:
   gui_ok=False
 
 class tk_gui:
+
+  def run(self):
+    self.clean()
+
+    saveout = sys.stdout
+    sys.stdout = self
+
+    layout  = "TopShelf"
+    accept  = None
+    delete  = None
+    skip    = self.var_skip == "yes"
+    meta    = self.get_meta()
+    outfile = None
+    pattern = self.get_pattern()
+    replace = self.get_replacement()
+    show    = False
+
+    if self.var_bcts.get() == "no": layout  = None
+    if len(self.var_out.get()):     outfile = self.var_out.get()
+    if len(self.var_accept.get()):  accept  = self.var_accept.get()
+    if len(self.var_reject.get()):  delete  = self.var_reject.get()
+    if len(self.var_title.get()):   meta['title']   = self.var_title.get()
+    if len(self.var_creator.get()): meta['creator'] = self.var_creator.get()
+
+    print "Layout:   %s" % repr(layout)
+    print "Accept:   %s" % repr(accept)
+    print "Delete:   %s" % repr(delete)
+    print "Skip:     %s" % repr(skip)
+
+    ts = TopShelf(layout=layout, accept_regexp=accept, delete_regexp=delete)
+    ts.replace_show = False
+    for m in meta:
+      print "Meta:     %s=%s" % (repr(m), repr(meta[m]))
+      ts.set_metainfo(m, meta[m])
+    for i in range(min(len(pattern), len(replace))):
+      if not len(pattern[i]): continue
+      print "Replace:  %s -> %s" % (repr(pattern[i]), repr(replace[i]))
+      ts.init_replace(pattern[i], replace[i], show);
+    for u in self.get_url():
+      print "Url:      %s" % (u)
+      ts.parse_url(u, output = not skip)
+
+    if not outfile:
+      author = make_filename(ts.info_author)
+      title = make_filename(ts.info_title)
+      if not title:
+	title = os.path.basename(url[0])
+      if author:
+	outfile = "%s-%s.epub" % (author, title)
+      else:
+	outfile = "%s.epub" % os.path.basename(url[0])
+
+    print "Outfile:  %s" % outfile
+
+    outfile = tkFileDialog.asksaveasfilename(defaultextension=".epub", initialfile=outfile)
+    if outfile:
+      print "Write in: %s" % outfile
+      ts.writeout(outfile)
+    else:
+      print "Discard e-book"
+
+    sys.stdout = saveout
+
+  def write(self, s):
+    self.text_log.insert(Tk.END, s)
+
+  def clean(self):
+    self.text_log.delete(1.0, Tk.END)
+
+  def get_url(self):
+    return self.get_text(self.text_url).split('\n')
+  def get_meta(self):
+    res = {}
+    for m in self.get_text(self.text_url).split('\n'):
+      a, _, b = m.partition('=')
+      res[a] = b
+    return res
+  def get_pattern(self):
+    return self.get_text(self.text_pattern).split('\n')
+  def get_replacement(self):
+    return self.get_text(self.text_replacement).split('\n')
+
+  def get_text(self, text):
+    str = text.get(1.0, Tk.END)
+    return str.strip().replace("\r\n", "\n").replace("\r", "\n")
 
   def create_text(self, root):
     frame = Tk.Frame(root)
@@ -1034,10 +1120,23 @@ class tk_gui:
 
   def __init__(self, root):
 
+    self.var_title   = Tk.StringVar()
+    self.var_creator = Tk.StringVar()
+    self.var_reject  = Tk.StringVar()
+    self.var_accept  = Tk.StringVar()
+    self.var_out     = Tk.StringVar()
+    self.var_cont    = Tk.StringVar()
+    self.var_bcts    = Tk.StringVar()
+    self.var_skip    = Tk.StringVar()
+
     all = Tk.N+Tk.S+Tk.E+Tk.W
 
     frame_opt = Tk.Frame(root); frame_opt.grid(row=0, column=0, sticky=all)
-    frame_btn = Tk.Frame(root); frame_btn.grid(row=1, column=0, sticky=all)
+    frame_btn = Tk.Frame(root); frame_btn.grid(row=2, column=0, sticky=all)
+
+    text_log, self.text_log = self.create_text(root)
+    self.text_log.config(height=10)
+    text_log.grid(row=1, column=0, sticky=all)
 
     row = 0
 
@@ -1050,16 +1149,16 @@ class tk_gui:
 
     label = Tk.Label(frame_opt, text="Metadata");
     label.grid(row=row, column=0, sticky=Tk.W)
-    text_url, text_url_t = self.create_text(frame_opt)
-    text_url_t.config(height=2, width=60)
-    text_url.grid(row=row, column=1, sticky=Tk.W+Tk.E)
+    text_meta, text_meta_t = self.create_text(frame_opt)
+    text_meta_t.config(height=2, width=60)
+    text_meta.grid(row=row, column=1, sticky=Tk.W+Tk.E)
     label = Tk.Label(frame_opt, text="(-m) auto detected\nUse name=value, one per line, epub name", justify=Tk.LEFT);
     label.grid(row=row, column=2, sticky=Tk.W)
     row+=1
 
     label = Tk.Label(frame_opt, text="Title");
     label.grid(row=row, column=0, sticky=Tk.W)
-    entry_title = Tk.Entry(frame_opt)
+    entry_title = Tk.Entry(frame_opt, textvar=self.var_title)
     entry_title.grid(row=row, column=1, sticky=Tk.W+Tk.E)
     label = Tk.Label(frame_opt, text="(-m title=...) auto detected");
     label.grid(row=row, column=2, sticky=Tk.W)
@@ -1067,7 +1166,7 @@ class tk_gui:
 
     label = Tk.Label(frame_opt, text="Author");
     label.grid(row=row, column=0, sticky=Tk.W)
-    entry_creator = Tk.Entry(frame_opt)
+    entry_creator = Tk.Entry(frame_opt, textvar=self.var_creator)
     entry_creator.grid(row=row, column=1, sticky=Tk.W+Tk.E)
     label = Tk.Label(frame_opt, text="(-m creator=...) auto detected");
     label.grid(row=row, column=2, sticky=Tk.W)
@@ -1075,7 +1174,7 @@ class tk_gui:
 
     label = Tk.Label(frame_opt, text="Reject");
     label.grid(row=row, column=0, sticky=Tk.W)
-    entry_delete = Tk.Entry(frame_opt)
+    entry_delete = Tk.Entry(frame_opt, textvar=self.var_reject)
     entry_delete.grid(row=row, column=1, sticky=Tk.W+Tk.E)
     label = Tk.Label(frame_opt, text="(--delete)");
     label.grid(row=row, column=2, sticky=Tk.W)
@@ -1083,7 +1182,7 @@ class tk_gui:
 
     label = Tk.Label(frame_opt, text="Accept");
     label.grid(row=row, column=0, sticky=Tk.W)
-    entry_accept = Tk.Entry(frame_opt)
+    entry_accept = Tk.Entry(frame_opt, textvar=self.var_accept)
     entry_accept.grid(row=row, column=1, sticky=Tk.W+Tk.E)
     label = Tk.Label(frame_opt, text="(--accept)");
     label.grid(row=row, column=2, sticky=Tk.W)
@@ -1107,24 +1206,35 @@ class tk_gui:
     text_replacement.grid(row=1, column=1, sticky=Tk.W+Tk.E)
     row+=1
 
-    op_cont = Tk.Checkbutton(frame_opt, text="Ignore downloading errors (--continue)")
+    label = Tk.Label(frame_opt, text="Force filename");
+    label.grid(row=row, column=0, sticky=Tk.W)
+    entry_output = Tk.Entry(frame_opt, textvar=self.var_out)
+    entry_output.grid(row=row, column=1, sticky=Tk.W+Tk.E)
+    label = Tk.Label(frame_opt, text="(-o)");
+    label.grid(row=row, column=2, sticky=Tk.W)
+    row+=1
+
+    op_cont = Tk.Checkbutton(frame_opt, text="Ignore downloading errors (--continue)", onvalue="yes", offvalue="no", variable=self.var_cont)
     op_cont.grid(row=row, column=0, columnspan=3, sticky=Tk.W)
     row+=1
-    op_bcts = Tk.Checkbutton(frame_opt, text="TopShelf BigCloset page (not --raw)")
+    op_bcts = Tk.Checkbutton(frame_opt, text="TopShelf BigCloset page (not --raw)", onvalue="yes", offvalue="no", variable=self.var_bcts)
     op_bcts.select()
     op_bcts.grid(row=row, column=0, columnspan=3, sticky=Tk.W)
     row+=1
-    op_skip = Tk.Checkbutton(frame_opt, text="Skip the first page, only download linked pages (--skip)")
+    op_skip = Tk.Checkbutton(frame_opt, text="Skip the first page, only download linked pages (--skip)", onvalue="yes", offvalue="no", variable=self.var_skip)
     op_skip.grid(row=row, column=0, columnspan=3, sticky=Tk.W)
-    row+=1
-    op_out  = Tk.Checkbutton(frame_opt, text="Choose filename (-o)")
-    op_out .grid(row=row, column=0, columnspan=3, sticky=Tk.W)
     row+=1
 
     button_close = Tk.Button(frame_btn, text="Close", command=root.quit)
     button_close.pack(side=Tk.RIGHT, fill=Tk.X)
-    button_run   = Tk.Button(frame_btn, text="Run")
+    button_run   = Tk.Button(frame_btn, text="Run", command=self.run)
     button_run  .pack(side=Tk.RIGHT, fill=Tk.X)
+
+
+    self.text_url         = text_url_t
+    self.text_meta        = text_meta_t
+    self.text_pattern     = text_pattern_t
+    self.text_replacement = text_replacement_t
 
 
 
