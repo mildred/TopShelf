@@ -851,7 +851,7 @@ DESCRIPTION
 
     Download stories from BigCloset TopShelf and convert them to an epub e-book
 
-    Version 0.1.3 (2009.12.09)
+    Version 0.2 (2009.12.30)
 
 OPTIONS
 
