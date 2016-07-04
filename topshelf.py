@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python2
 # -*- coding: utf-8 -*-
 ## epub.py
 ## See copyright notice at end of file
@@ -246,17 +246,59 @@ class Epub:
 
 if 'Epub' not in dir():
   from epub import Epub
-from urllib2 import urlopen, HTTPError
+
 from urlparse import urljoin
+import cookielib
 import os
 import sys
 import datetime
 import re
+
 try:
   import BeautifulSoup
   soup_ok=True
 except:
   soup_ok=False
+
+
+import urllib2
+
+COOKIEFILE = 'cookies.lwp'
+# the path and filename to save your cookies in
+
+cj = None
+ClientCookie = None
+cookielib = None
+
+# Let's see if cookielib is available
+try:
+  import cookielib
+except ImportError:
+  "Print: import cookielib failed."
+  # If importing cookielib fails
+  # let's try ClientCookie
+  try:
+    import ClientCookie
+  except ImportError:
+    # ClientCookie isn't available either
+    urlopen = urllib2.urlopen
+    Request = urllib2.Request
+  else:
+    # imported ClientCookie
+    urlopen = ClientCookie.urlopen
+    Request = ClientCookie.Request
+    cj_lwp = ClientCookie.LWPCookieJar()
+    cj_moz = ClientCookie.MozillaCookieJar()
+    cj = None
+else:
+  # importing cookielib worked
+  urlopen = urllib2.urlopen
+  Request = urllib2.Request
+  cj_lwp = cookielib.LWPCookieJar()
+  cj_moz = cookielib.MozillaCookieJar()
+  cj = None
+  # This is a subclass of FileCookieJar
+  # that has useful load and save methods
 
 
 
@@ -265,7 +307,7 @@ def make_filename(str):
   for c in str:
     if c.isalnum():
       res = res + c
-    elif res[-1]!='_' and res!="":
+    elif len(res) and res[-1]!='_' and res!="":
       res = res + "_"
   return res
 
@@ -296,6 +338,8 @@ class TopShelf(Epub):
     self.replace     = []
     self.replace_show= False
     self.error       = False
+    self.downloadOnce= False
+    self.BeautifulParser = BeautifulSoup.BeautifulSoup
     if accept_regexp:
       self.accept_regexp = re.compile(accept_regexp)
     else:
@@ -350,19 +394,29 @@ class TopShelf(Epub):
 	  url = "../" + url
     return url
 
+  def has_url(self, url):
+    return url in self.download_cache
+
+  def urlopen(self, url):
+    result = None
+    try:
+      r = Request(url);
+      result = urlopen (r)
+      if cj is not None:
+	cj.save(COOKIEFILE);
+    except:
+      url2 = url.replace('bigcloset.us', 'bigclosetr.us');
+      if url2 != url:
+	self.urlopen(url2);
+      else:
+	print("Error downloading: %s" % url)
+	self.error = True
+    return result;
+
   def open_url(self, url):
     if url in self.download_cache:
       return self.download_cache[url]
-    f = None
-    try:
-      f = urlopen(url);
-    except:
-      url = url.replace('bigcloset.us', 'bigclosetr.us');
-      try:
-	f = urlopen(url);
-      except:
-	print("Error downloading: %s" % url);
-	self.error = True
+    f = self.urlopen(url);
     if f:
       dta = {
 	'Content-Type': f.info().getheader("Content-Type").replace('; charset=', ';charset='),
@@ -392,7 +446,7 @@ class TopShelf(Epub):
       if dta['Content-Type'] == "text/plain":
 	is_html = True
 	dta['Content-Type'] = "text/html"
-	data = data.decode('utf-8').encode('ascii', 'xmlcharrefreplace')
+	data = data.decode('utf-8', 'ignore').encode('ascii', 'xmlcharrefreplace')
 	for i in range(0, 9) + range(11, 13) + range(14, 32):
 	  data = data.replace(chr(i),  "&#%x;" % i)
 	data = data.replace('&', '&amp;')
@@ -403,8 +457,7 @@ class TopShelf(Epub):
 	data = re.sub('\r?\n(\r?\n|  )', '</p>\n<p>', data)
 	data = re.sub('_([^_<>]+)_', '<em>\\1</em>', data)
 	data = re.sub('\*([^\*<>]+)\*', '<strong>\\1</strong>', data)
-	data = """<html><body>\n<h1>%s</h1>\n<p>%s</p>\n</body></html>""" % (
-	  os.path.basename(url), data)
+	data = """<html><body>\n<p>%s</p>\n</body></html>""" % (data)
       if has_file:
 	if parse and is_html:
 	  if output:
@@ -424,7 +477,7 @@ class TopShelf(Epub):
 
       if parse and is_html:
 	data = self.prefilter(data, filename, url)
-	soup = BeautifulSoup.BeautifulSoup(data)
+	soup = self.BeautifulParser(data)
 	content = self.parse_soup(soup, filename, url, output)
 	if not has_file and output:
 	  self.addfile(filename, content,     "application/xhtml+xml")
@@ -505,6 +558,10 @@ class TopShelf(Epub):
     self.soup_remove_before(soup, soup.find('span', attrs={'class':'print-link'}))
     self.soup_remove_after (soup, soup.find('div',  attrs={'class':'book-navigation'}))
 
+    srv  = soup.find('div', attrs={'class':'service-links'})
+    if srv:
+      srv.extract();
+
     nav  = soup.find('div', attrs={'class':'book-navigation'})
     if nav:
       list = nav.find('ul')
@@ -546,6 +603,10 @@ class TopShelf(Epub):
       em.insert(0, txt)
       p.insert(0, em)
       body.insert(0, p)
+
+    h = BeautifulSoup.Tag(soup, 'h1')
+    h.insert(0, BeautifulSoup.NavigableString(page_title))
+    body.insert(0, h)
 
     p = BeautifulSoup.Tag(soup, 'p')
     a = BeautifulSoup.Tag(soup, 'a')
@@ -592,18 +653,16 @@ class TopShelf(Epub):
     return result
 
   def follow_links(self, soup, baseurl, recursive=False):
-    if self.recursion_limit and self.recursion_index > self.recursion_limit:
+    if self.recursion_limit != None and self.recursion_index > self.recursion_limit:
       accept_recursion = False
     else:
       accept_recursion = True
-    for a in soup.findAll('a'):
-      url = None
-      try:
-	url = urljoin(baseurl, a["href"])
-      except: # No attribute href
-	pass
-      if url and url != baseurl:
-	if recursive and accept_recursion:
+    for a in soup.findAll('a', href=True):
+      url = urljoin(baseurl, a["href"])
+      url1, _, _ = url.partition('#')
+      url2, _, _ = baseurl.partition('#')
+      if url and url1 != url2:
+	if recursive and accept_recursion and not (self.downloadOnce and self.has_url(url)):
 	  self.recursion_index = self.recursion_index + 1
 	  u = self.parse_url(url)
 	  if u: a['href'] = "../%s" % u
@@ -618,9 +677,9 @@ class TopShelf(Epub):
 
     allowed_head = ['title', 'link', 'meta']
     allowed_body = ['p', 'a', 'img', 'font', 'u', 'b', 'strong', 'i', 'em', 's', 'center', 'big', 'small', 'br', 'hr', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote']
-    not_allowed_body = ['div', 'span', 'table', 'tr', 'th', 'td']
+    not_allowed_body = ['div', 'span', 'table', 'tr', 'th', 'td', 'form', 'input']
     allowed_body_attrs = {'a':['href', 'name', 'title'], 'img':['src', 'width', 'height', 'alt', 'align'], 'p':['align'], 'font':['size', 'color', 'face'], '*':['id', 'style', 'class']}
-    not_allowed_body_attrs = {'img':['border']}
+    not_allowed_body_attrs = {'img':['border'], 'a':['onclick', 'rel']}
     remove_body = ['script']
 
     #
@@ -641,7 +700,7 @@ class TopShelf(Epub):
     # Modify <img src>
     #
 
-    for img in soup.findAll('img'):
+    for img in soup.findAll('img', src=True):
       url = urljoin(baseurl, img["src"])
       u = self.get_url(url, relative=os.path.dirname(self.translate_url_to_name(baseurl))+"/")
       if u: img['src'] = "%s" % u
@@ -808,7 +867,7 @@ class TopShelf(Epub):
     elif info == "rights":	pass
 
   def get_metainfo(self, info):
-    if   info == "title":	res = self.info_title.encode('utf-8')
+    if   info == "title":	res = self.info_title.decode('utf-8')
     elif info == "lang":	res = "en"
     elif info == "ident":	res = self.info_url.encode('utf-8')
     elif info == "subject":	res = ", ".join(self.info_tags).encode('utf-8')
@@ -851,7 +910,7 @@ DESCRIPTION
 
     Download stories from BigCloset TopShelf and convert them to an epub e-book
 
-    Version 0.2 (2009.12.30)
+    Version 0.2.4 (2010.04.18)
 
 OPTIONS
 
@@ -873,10 +932,16 @@ OPTIONS
     -s, --skip
         Skip first page
 
+    -M, --minimal
+	Use minimal parser for pathologically bad markup documents
+
+    -D, --depth DEPTH
+	Recursion limit
+
     --replace SEARCH REPLACEMENT
 
     --gui
-	Start the GUI (not yet implemented)
+	Start the GUI
 
     -o OUTFILE
         use OUTFILE as filename for the resulting epub e-book
@@ -905,6 +970,11 @@ def main(argv):
   skip = False
   show=False
   cont=False
+  minimal = False
+  once = False
+  recursion_limit = None
+  id_url = None
+  id_data = None
   replace = []
   meta = {}
   i = 1
@@ -919,10 +989,17 @@ def main(argv):
       return 0
     elif arg == "-r" or arg == "--raw":
       layout = None
+    elif arg == "-M" or arg == "--minimal":
+      minimal = True
     elif arg == "-c" or arg == "--continue":
       cont = True
     elif arg == "-s" or arg == "--skip":
       skip = True
+    elif arg == "-O" or arg == "--once":
+      once = True
+    elif arg == "-D" or arg == "--depth":
+      i = i + 1
+      recursion_limit = int(argv[i])
     elif arg == "-a" or arg == "--accept":
       i = i + 1
       accept = argv[i]
@@ -939,6 +1016,11 @@ def main(argv):
       i = i + 1
     elif arg == "--show":
       show=True
+    elif arg == "--identify":
+      i = i + 1
+      id_url = argv[i]
+      i = i + 1
+      id_data = argv[i]
     elif arg == "--":
       i = i + 1
       break
@@ -967,10 +1049,67 @@ def main(argv):
     print "You should specify a URL"
     return 1
 
+
+  if cj_lwp is not None or cj_moz is not None:
+  # we successfully imported
+  # one of the two cookie handling modules
+    if os.path.isfile("cookies.lwp") and cj_lwp is not None:
+      cj = cj_lwp
+      COOKIEFILE = "cookies.lwp"
+      cj.load(COOKIEFILE)
+      print "Imported %s" % COOKIEFILE
+    elif os.path.isfile("cookies.txt") and cj_moz is not None:
+      # if we have a cookie file already saved
+      # then load the cookies into the Cookie Jar
+      cj = cj_moz
+      COOKIEFILE = "cookies.txt"
+      cj.load(COOKIEFILE)
+      print "Imported %s" % COOKIEFILE
+    elif cj_moz is not None:
+      cj = cj_moz
+      COOKIEFILE = "cookies.txt"
+    else:
+      cj = cj_lwp
+      COOKIEFILE = "cookies.lwp"
+    # Now we need to get our Cookie Jar
+    # installed in the opener;
+    # for fetching URLs
+    if cookielib is not None:
+      # if we use cookielib
+      # then we get the HTTPCookieProcessor
+      # and install the opener in urllib2
+      opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+      urllib2.install_opener(opener)
+    else:
+      # if we use ClientCookie
+      # then we get the HTTPCookieProcessor
+      # and install the opener in ClientCookie
+      opener = ClientCookie.build_opener(ClientCookie.HTTPCookieProcessor(cj))
+      ClientCookie.install_opener(opener)
+
+  if id_url is not None and id_data is not None:
+    r = Request(id_url, id_data);
+    f = urlopen(r)
+    print f.info();
+    f2 = open("login.html", "w");
+    f2.write(f.read())
+    f2.close()
+    if cj is not None:
+      print 'These are the cookies we have received so far :'
+      for index, cookie in enumerate(cj): print index, '  :  ', cookie
+      cj.save(COOKIEFILE)
+
+
   for u in url:
     print "E-Book URL: %s" % u
 
   ts = TopShelf(layout=layout, accept_regexp=accept, delete_regexp=delete)
+  if minimal:
+    ts.BeautifulParser = BeautifulSoup.MinimalSoup
+  if recursion_limit:
+    ts.recursion_limit = recursion_limit
+  if once:
+    ts.downloadOnce = True
   ts.replace_show = False
   for m in meta:
     ts.set_metainfo(m, meta[m])
@@ -986,17 +1125,22 @@ def main(argv):
       title = os.path.basename(url[0])
     if author:
       #outfile = "%s-%s.epub" % (author, os.path.basename(url[0]))
-      outfile = "%s-%s.epub" % (author, title)
+      outfile = "%s/%s-%s.epub" % (author, author, title)
       obsoletes.append("%s.epub" % os.path.basename(url[0]))
       obsoletes.append("%s-%s.epub" % (author, os.path.basename(url[0])))
     else:
-      outfile = "%s.epub" % os.path.basename(url[0])
+      outfile = "Unknown/%s.epub" % os.path.basename(url[0])
+
+  make_dir=os.path.dirname(outfile)
+  if not os.path.exists(make_dir):
+    os.mkdir(make_dir)
 
   if ts.error:
     print "Errors downloading E-Book: %s" % outfile
     if not cont: exit(1)
   else:
     print "Downloaded E-Book: %s" % outfile
+    if cont: print "Option -c supplied but unnecessary"
 
   if len(obsoletes):
     f = open("obsolete.txt", "a")
@@ -1026,7 +1170,7 @@ class tk_gui:
     layout  = "TopShelf"
     accept  = None
     delete  = None
-    skip    = self.var_skip == "yes"
+    skip    = self.var_skip.get() == "yes"
     meta    = self.get_meta()
     outfile = None
     pattern = self.get_pattern()
@@ -1034,7 +1178,6 @@ class tk_gui:
     show    = False
 
     if self.var_bcts.get() == "no": layout  = None
-    if len(self.var_out.get()):     outfile = self.var_out.get()
     if len(self.var_accept.get()):  accept  = self.var_accept.get()
     if len(self.var_reject.get()):  delete  = self.var_reject.get()
     if len(self.var_title.get()):   meta['title']   = self.var_title.get()
@@ -1058,15 +1201,14 @@ class tk_gui:
       print "Url:      %s" % (u)
       ts.parse_url(u, output = not skip)
 
-    if not outfile:
-      author = make_filename(ts.info_author)
-      title = make_filename(ts.info_title)
-      if not title:
-	title = os.path.basename(url[0])
-      if author:
-	outfile = "%s-%s.epub" % (author, title)
-      else:
-	outfile = "%s.epub" % os.path.basename(url[0])
+    author = make_filename(ts.info_author)
+    title = make_filename(ts.info_title)
+    if not title:
+      title = os.path.basename(url[0])
+    if author:
+      outfile = "%s-%s.epub" % (author, title)
+    else:
+      outfile = "%s.epub" % os.path.basename(url[0])
 
     print "Outfile:  %s" % outfile
 
@@ -1089,7 +1231,7 @@ class tk_gui:
     return self.get_text(self.text_url).split('\n')
   def get_meta(self):
     res = {}
-    for m in self.get_text(self.text_url).split('\n'):
+    for m in self.get_text(self.text_meta).split('\n'):
       a, _, b = m.partition('=')
       res[a] = b
     return res
@@ -1124,79 +1266,117 @@ class tk_gui:
     self.var_creator = Tk.StringVar()
     self.var_reject  = Tk.StringVar()
     self.var_accept  = Tk.StringVar()
-    self.var_out     = Tk.StringVar()
     self.var_cont    = Tk.StringVar()
     self.var_bcts    = Tk.StringVar()
     self.var_skip    = Tk.StringVar()
 
     all = Tk.N+Tk.S+Tk.E+Tk.W
 
-    frame_opt = Tk.Frame(root); frame_opt.grid(row=0, column=0, sticky=all)
-    frame_btn = Tk.Frame(root); frame_btn.grid(row=2, column=0, sticky=all)
+    frame_btn = Tk.Frame(root); 
 
-    text_log, self.text_log = self.create_text(root)
-    self.text_log.config(height=10)
-    text_log.grid(row=1, column=0, sticky=all)
+    frame_url      = Tk.LabelFrame(root, text="Source URL")
+    frame_browsing = Tk.LabelFrame(root, text="Browsing")
+    frame_metadata = Tk.LabelFrame(root, text="Metadata (autodetected) (-m)")
+    frame_replace  = Tk.LabelFrame(root, text="Replacement in downloaded HTML code (--replace)")
+    frame_log      = Tk.LabelFrame(root, text="Log")
+
+    frame_url     .grid(row=0, column=0, sticky=all)
+    frame_browsing.grid(row=0, column=1, sticky=all)
+    frame_metadata.grid(row=1, column=0, sticky=all)
+    frame_replace .grid(row=2, column=0, sticky=all)
+    frame_log     .grid(row=1, column=1, sticky=all, rowspan=2)
+    frame_btn     .grid(row=3, column=0, sticky=all, columnspan=2)
+
+    #
+    # URL
+    #
 
     row = 0
 
-    label = Tk.Label(frame_opt, text="URL (one per line)");
-    label.grid(row=row, column=0, sticky=Tk.W)
-    text_url, text_url_t = self.create_text(frame_opt)
-    text_url_t.config(height=2, width=60)
-    text_url.grid(row=row, column=1, columnspan=2, sticky=Tk.W+Tk.E)
+    Tk.Label(frame_url, text="(one URL per line)") \
+      .grid(row=row, column=0, sticky=Tk.W)
     row+=1
 
-    label = Tk.Label(frame_opt, text="Metadata");
-    label.grid(row=row, column=0, sticky=Tk.W)
-    text_meta, text_meta_t = self.create_text(frame_opt)
-    text_meta_t.config(height=2, width=60)
-    text_meta.grid(row=row, column=1, sticky=Tk.W+Tk.E)
-    label = Tk.Label(frame_opt, text="(-m) auto detected\nUse name=value, one per line, epub name", justify=Tk.LEFT);
-    label.grid(row=row, column=2, sticky=Tk.W)
+    text_url, text_url_t = self.create_text(frame_url)
+    text_url_t.config(height=2)
+    text_url.grid(row=row, column=0, sticky=Tk.W+Tk.E)
     row+=1
 
-    label = Tk.Label(frame_opt, text="Title");
+    op_cont = Tk.Checkbutton(frame_url, text="Ignore downloading errors (--continue)", onvalue="yes", offvalue="no", variable=self.var_cont)
+    op_cont.deselect()
+    op_cont.grid(row=row, column=0, sticky=Tk.W)
+    row+=1
+
+    op_bcts = Tk.Checkbutton(frame_url, text="TopShelf BigCloset page (not --raw)", onvalue="yes", offvalue="no", variable=self.var_bcts)
+    op_bcts.select()
+    op_bcts.grid(row=row, column=0, sticky=Tk.W)
+    row+=1
+
+    #
+    # Metadata
+    #
+
+    row = 0
+
+    label = Tk.Label(frame_metadata, text="Title");
     label.grid(row=row, column=0, sticky=Tk.W)
-    entry_title = Tk.Entry(frame_opt, textvar=self.var_title)
+    entry_title = Tk.Entry(frame_metadata, textvar=self.var_title, width=30)
     entry_title.grid(row=row, column=1, sticky=Tk.W+Tk.E)
-    label = Tk.Label(frame_opt, text="(-m title=...) auto detected");
+    label = Tk.Label(frame_metadata, text="(-m title=...)");
     label.grid(row=row, column=2, sticky=Tk.W)
     row+=1
 
-    label = Tk.Label(frame_opt, text="Author");
+    label = Tk.Label(frame_metadata, text="Author");
     label.grid(row=row, column=0, sticky=Tk.W)
-    entry_creator = Tk.Entry(frame_opt, textvar=self.var_creator)
+    entry_creator = Tk.Entry(frame_metadata, textvar=self.var_creator, width=30)
     entry_creator.grid(row=row, column=1, sticky=Tk.W+Tk.E)
-    label = Tk.Label(frame_opt, text="(-m creator=...) auto detected");
+    label = Tk.Label(frame_metadata, text="(-m creator=...)");
     label.grid(row=row, column=2, sticky=Tk.W)
     row+=1
 
-    label = Tk.Label(frame_opt, text="Reject");
+    label = Tk.Label(frame_metadata, text="E-Pub metadata");
     label.grid(row=row, column=0, sticky=Tk.W)
-    entry_delete = Tk.Entry(frame_opt, textvar=self.var_reject)
+    text_meta, text_meta_t = self.create_text(frame_metadata)
+    text_meta_t.config(height=2, width=40)
+    text_meta.grid(row=row, column=1, sticky=Tk.W+Tk.E)
+    label = Tk.Label(frame_metadata, text="(-m)\nOne pair `name=value' per line", justify=Tk.LEFT);
+    label.grid(row=row, column=2, sticky=Tk.W)
+    row+=1
+
+    #
+    # Browsing
+    #
+
+    row = 0
+
+    label = Tk.Label(frame_browsing, text="Reject regexp");
+    label.grid(row=row, column=0, sticky=Tk.W)
+    entry_delete = Tk.Entry(frame_browsing, textvar=self.var_reject)
     entry_delete.grid(row=row, column=1, sticky=Tk.W+Tk.E)
-    label = Tk.Label(frame_opt, text="(--delete)");
+    label = Tk.Label(frame_browsing, text="(--delete)");
     label.grid(row=row, column=2, sticky=Tk.W)
     row+=1
 
-    label = Tk.Label(frame_opt, text="Accept");
+    label = Tk.Label(frame_browsing, text="Accept regexp");
     label.grid(row=row, column=0, sticky=Tk.W)
-    entry_accept = Tk.Entry(frame_opt, textvar=self.var_accept)
+    entry_accept = Tk.Entry(frame_browsing, textvar=self.var_accept)
     entry_accept.grid(row=row, column=1, sticky=Tk.W+Tk.E)
-    label = Tk.Label(frame_opt, text="(--accept)");
+    label = Tk.Label(frame_browsing, text="(--accept)");
     label.grid(row=row, column=2, sticky=Tk.W)
     row+=1
 
-    label = Tk.Label(frame_opt, text="Replace in HTML code");
-    label.grid(row=row, column=0, sticky=Tk.W)
-    frame_replace = Tk.Frame(frame_opt)
-    frame_replace.grid(row=row, column=1, sticky=Tk.W+Tk.E)
-    label = Tk.Label(frame_opt, text="(--replace)\nThe replacement text must match the pattern line by line", justify=Tk.LEFT);
-    label.grid(row=row, column=2, sticky=Tk.W)
-    label = Tk.Label(frame_replace, text="Pattern");
+    op_skip = Tk.Checkbutton(frame_browsing, text="Skip the first page, only download linked pages (--skip)", onvalue="yes", offvalue="no", variable=self.var_skip)
+    op_skip.deselect()
+    op_skip.grid(row=row, column=0, columnspan=3, sticky=Tk.W)
+    row+=1
+
+    #
+    # Replace
+    #
+
+    label = Tk.Label(frame_replace, text="Patterns:");
     label.grid(row=0, column=0, sticky=Tk.W)
-    label = Tk.Label(frame_replace, text="Replacement");
+    label = Tk.Label(frame_replace, text="Replacements:");
     label.grid(row=0, column=1, sticky=Tk.W)
     text_pattern, text_pattern_t = self.create_text(frame_replace)
     text_pattern_t.config(height=2, width=30)
@@ -1204,32 +1384,25 @@ class tk_gui:
     text_replacement, text_replacement_t = self.create_text(frame_replace)
     text_replacement_t.config(height=2, width=30)
     text_replacement.grid(row=1, column=1, sticky=Tk.W+Tk.E)
-    row+=1
+    Tk.Label(frame_replace, text="(one pattern and replacement per line\npattern must match replacement lines)") \
+      .grid(row=2, column=0, columnspan=2, sticky=Tk.W)
 
-    label = Tk.Label(frame_opt, text="Force filename");
-    label.grid(row=row, column=0, sticky=Tk.W)
-    entry_output = Tk.Entry(frame_opt, textvar=self.var_out)
-    entry_output.grid(row=row, column=1, sticky=Tk.W+Tk.E)
-    label = Tk.Label(frame_opt, text="(-o)");
-    label.grid(row=row, column=2, sticky=Tk.W)
-    row+=1
+    #
+    # Log
+    #
 
-    op_cont = Tk.Checkbutton(frame_opt, text="Ignore downloading errors (--continue)", onvalue="yes", offvalue="no", variable=self.var_cont)
-    op_cont.grid(row=row, column=0, columnspan=3, sticky=Tk.W)
-    row+=1
-    op_bcts = Tk.Checkbutton(frame_opt, text="TopShelf BigCloset page (not --raw)", onvalue="yes", offvalue="no", variable=self.var_bcts)
-    op_bcts.select()
-    op_bcts.grid(row=row, column=0, columnspan=3, sticky=Tk.W)
-    row+=1
-    op_skip = Tk.Checkbutton(frame_opt, text="Skip the first page, only download linked pages (--skip)", onvalue="yes", offvalue="no", variable=self.var_skip)
-    op_skip.grid(row=row, column=0, columnspan=3, sticky=Tk.W)
-    row+=1
+    text_log, self.text_log = self.create_text(frame_log)
+    self.text_log.config(height=20, width=60)
+    text_log.grid(row=0, column=0, sticky=all)
+
+    #
+    # Buttons
+    #
 
     button_close = Tk.Button(frame_btn, text="Close", command=root.quit)
     button_close.pack(side=Tk.RIGHT, fill=Tk.X)
     button_run   = Tk.Button(frame_btn, text="Run", command=self.run)
     button_run  .pack(side=Tk.RIGHT, fill=Tk.X)
-
 
     self.text_url         = text_url_t
     self.text_meta        = text_meta_t
