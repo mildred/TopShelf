@@ -39,18 +39,18 @@ class Epub:
   def tidy(self, code):
     try:
       options = dict(output_xhtml=1,
-		    add_xml_decl=1,
-		    add_xml_space=1,
-		    indent=1,
-		    anchor_as_name=0,
-		    clean=1,
-		    doctype="strict",
-		    drop_proprietary_attributes=1,
-		    enclose_block_text=1,
-		    enclose_text=1,
-		    logical_emphasis=1,
-		    merge_divs=1,
-		    merge_spans=1)
+                    add_xml_decl=1,
+                    add_xml_space=1,
+                    indent=1,
+                    anchor_as_name=0,
+                    clean=1,
+                    doctype="strict",
+                    drop_proprietary_attributes=1,
+                    enclose_block_text=1,
+                    enclose_text=1,
+                    logical_emphasis=1,
+                    merge_divs=1,
+                    merge_spans=1)
       return str(tidy.parseString(code, **options))
     except:
       return code
@@ -118,10 +118,10 @@ class Epub:
     <dc:title>%s</dc:title>
     <dc:language xsi:type="dcterms:RFC3066">%s</dc:language>
     <dc:identifier id="dcidid" opf:scheme="URI">%s</dc:identifier>
-    <dc:subject>%s</dc:subject>
+    %s
     <dc:description>%s</dc:description>
     <dc:relation>%s</dc:relation>
-    <dc:creator>%s</dc:creator>
+    %s
     <dc:publisher>%s</dc:publisher>
     <dc:date xsi:type="dcterms:W3CDTF">%s</dc:date>
     <dc:rights>%s</dc:rights>
@@ -129,10 +129,10 @@ class Epub:
       self.get_metainfo("title"),
       self.get_metainfo("lang"),
       self.get_metainfo("ident"),
-      self.get_metainfo("subject"),
+      ["<dc:subject>%s</dc:subject>"%i for i in self.get_metainfo("subject")],
       self.get_metainfo("description"),
       self.get_metainfo("relation"),
-      self.get_metainfo("creator"),
+      ["<dc:creator>%s</dc:creator>"%i for i in self.get_metainfo("creator")],
       self.get_metainfo("publisher"),
       self.get_metainfo("date"),
       self.get_metainfo("rights"))
@@ -142,7 +142,7 @@ class Epub:
     for filename in self.all_files:
       f = self.all_files[filename]
       manifest += '    <item id="item_%s" href="%s" media-type="%s"/>\n' % (
-	f['id'], filename, f['type'])
+        f['id'], filename, f['type'])
     manifest += '  </manifest>\n'
 
     spine  = '  <spine toc="ncx">\n'
@@ -165,8 +165,8 @@ class Epub:
     for nav in navigation:
       type, a, b = self.all_files[nav['file']]['type'].partition('/')
       if type == "text" or type == "application":
-	res += '    <itemref idref="item_%s"/>\n' % self.all_files[nav['file']]['id']
-	res = self.navigate_opf(nav['sub'], res)
+        res += '    <itemref idref="item_%s"/>\n' % self.all_files[nav['file']]['id']
+        res = self.navigate_opf(nav['sub'], res)
     return res
 
 
@@ -177,7 +177,7 @@ class Epub:
     for nav in self.navigation:
       map, d, order = self.navigate_toc(nav, "    ", map, 0, order)
       if d > depth:
-	depth = d
+        depth = d
     toc = u"""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="en">
@@ -206,7 +206,7 @@ class Epub:
     for n in nav["sub"]:
       res, d, order = self.navigate_toc(n, indent2, res, depth, order)
       if d > final_depth:
-	final_depth = d
+        final_depth = d
     res += indent + "</navPoint>\n"
     return res, final_depth, order
 
@@ -312,6 +312,9 @@ def make_filename(str):
   return res
 
 
+def has_class(cls):
+  return lambda s: s and cls in s.split(" ")
+
 class TopShelf(Epub):
 
   downloaded_files = {}
@@ -330,7 +333,7 @@ class TopShelf(Epub):
     self.current_nav = self.navigation
     self.info_title  = ""
     self.info_url    = ""
-    self.info_author = ""
+    self.info_author = []
     self.info_tags   = []
     self.info_date   = datetime.datetime.utcnow()
     self.raw         = layout == None
@@ -357,7 +360,7 @@ class TopShelf(Epub):
     for df in self.downloaded_files:
       if self.downloaded_files[df]['url']    == url and \
          self.downloaded_files[df]['modify'] == modify:
-	return df
+        return df
     filename = os.path.basename(url.rstrip('/'))
     if not modify:
       filename = "content/resources/%s" % filename
@@ -388,10 +391,10 @@ class TopShelf(Epub):
     url = self.parse_url(url, parse=False, toc=False)
     if relative and url:
       if url.startswith(relative):
-	a, b, url = url.partition(relative)
+        a, b, url = url.partition(relative)
       else:
-	for i in range(url.count("/")):
-	  url = "../" + url
+        for i in range(url.count("/")):
+          url = "../" + url
     return url
 
   def has_url(self, url):
@@ -403,14 +406,14 @@ class TopShelf(Epub):
       r = Request(url);
       result = urlopen (r)
       if cj is not None:
-	cj.save(COOKIEFILE);
+        cj.save(COOKIEFILE);
     except:
       url2 = url.replace('bigcloset.us', 'bigclosetr.us');
       if url2 != url:
-	self.urlopen(url2);
+        self.urlopen(url2);
       else:
-	print("Error downloading: %s" % url)
-	self.error = True
+        print("Error downloading: %s" % url)
+        self.error = True
     return result;
 
   def open_url(self, url):
@@ -419,8 +422,8 @@ class TopShelf(Epub):
     f = self.urlopen(url);
     if f:
       dta = {
-	'Content-Type': f.info().getheader("Content-Type").replace('; charset=', ';charset='),
-	'data'        : f.read()}
+        'Content-Type': f.info().getheader("Content-Type").replace('; charset=', ';charset='),
+        'data'        : f.read()}
       f.close()
       self.download_cache[url] = dta
       return dta
@@ -440,55 +443,55 @@ class TopShelf(Epub):
     else:
       filename = self.translate_url_to_name(url, parse)
       is_html  = ("text/html"         in dta['Content-Type']) or \
-		 ("application/xhtml" in dta['Content-Type'])
+                 ("application/xhtml" in dta['Content-Type'])
       has_file = filename in self.all_files
       data = dta['data']
       if dta['Content-Type'] == "text/plain":
-	is_html = True
-	dta['Content-Type'] = "text/html"
-	data = data.decode('utf-8', 'ignore').encode('ascii', 'xmlcharrefreplace')
-	for i in range(0, 9) + range(11, 13) + range(14, 32):
-	  data = data.replace(chr(i),  "&#%x;" % i)
-	data = data.replace('&', '&amp;')
-	data = data.replace('<', '&lt;')
-	data = data.replace('>', '&gt;')
-	#data = data.replace('\n\n', '</p>\n<p>')
-	#data = data.replace('\n  ', '</p>\n<p>')
-	data = re.sub('\r?\n(\r?\n|  )', '</p>\n<p>', data)
-	data = re.sub('_([^_<>]+)_', '<em>\\1</em>', data)
-	data = re.sub('\*([^\*<>]+)\*', '<strong>\\1</strong>', data)
-	data = """<html><body>\n<p>%s</p>\n</body></html>""" % (data)
+        is_html = True
+        dta['Content-Type'] = "text/html"
+        data = data.decode('utf-8', 'ignore').encode('ascii', 'xmlcharrefreplace')
+        for i in range(0, 9) + range(11, 13) + range(14, 32):
+          data = data.replace(chr(i),  "&#%x;" % i)
+        data = data.replace('&', '&amp;')
+        data = data.replace('<', '&lt;')
+        data = data.replace('>', '&gt;')
+        #data = data.replace('\n\n', '</p>\n<p>')
+        #data = data.replace('\n  ', '</p>\n<p>')
+        data = re.sub('\r?\n(\r?\n|  )', '</p>\n<p>', data)
+        data = re.sub('_([^_<>]+)_', '<em>\\1</em>', data)
+        data = re.sub('\*([^\*<>]+)\*', '<strong>\\1</strong>', data)
+        data = """<html><body>\n<p>%s</p>\n</body></html>""" % (data)
       if has_file:
-	if parse and is_html:
-	  if output:
-	    print "Process file  %s" % filename
-	  else:
-	    print "Process file* %s" % filename
-	else:
-	  print "Use file      %s" % filename
+        if parse and is_html:
+          if output:
+            print "Process file  %s" % filename
+          else:
+            print "Process file* %s" % filename
+        else:
+          print "Use file      %s" % filename
       else:
-	if parse and is_html:
-	  if output:
-	    print "Process file  %s:\t%s" % (filename, url)
-	  else:
-	    print "Process file* %s:\t%s" % (filename, url)
-	else:
-	  print "Download file %s:\t%s" % (filename, url)
+        if parse and is_html:
+          if output:
+            print "Process file  %s:\t%s" % (filename, url)
+          else:
+            print "Process file* %s:\t%s" % (filename, url)
+        else:
+          print "Download file %s:\t%s" % (filename, url)
 
       if parse and is_html:
-	data = self.prefilter(data, filename, url)
-	soup = self.BeautifulParser(data)
-	content = self.parse_soup(soup, filename, url, output)
-	if not has_file and output:
-	  self.addfile(filename, content,     "application/xhtml+xml")
+        data = self.prefilter(data, filename, url)
+        soup = self.BeautifulParser(data)
+        content = self.parse_soup(soup, filename, url, output)
+        if not has_file and output:
+          self.addfile(filename, content,     "application/xhtml+xml")
       else:
-	if output and toc:
-	  self.current_nav.append({
-	    'file' : filename,
-	    'title': filename.encode('utf-8'),
-	    'sub'  : []})
-	if not has_file and output:
-	  self.addfile(filename, data, dta['Content-Type'])
+        if output and toc:
+          self.current_nav.append({
+            'file' : filename,
+            'title': filename.encode('utf-8'),
+            'sub'  : []})
+        if not has_file and output:
+          self.addfile(filename, data, dta['Content-Type'])
       return filename
 
   def init_replace(self, r1, r2, show=False):
@@ -499,11 +502,11 @@ class TopShelf(Epub):
   def prefilter(self, code, filename, baseurl):
     if len(self.replace):
       for r1, r2 in self.replace:
-	code = re.sub(r1, r2, code)
+        code = re.sub(r1, r2, code)
       if self.replace_show:
-	print "== code =="
-	print code
-	print "== /code =="
+        print "== code =="
+        print code
+        print "== /code =="
     return code
 
   def parse_soup_topshelf(self, soup, filename, baseurl, output):
@@ -513,86 +516,88 @@ class TopShelf(Epub):
       page_title = page_title.replace(" | BigCloset TopShelf", "")
     else:
       page_title = os.path.basename(filename)
-    submitted  = soup.find('span', attrs={'class':'submitted'})
+    submitted  = soup.find('footer', attrs={'class':'submitted'})
     if output:
       if not self.info_title:
-	self.info_title = page_title
+        self.info_title = page_title
       navigation_item = {
-	'file' : filename,
-	'title': page_title.decode('utf-8'),
-	'sub'  : []}
+        'file' : filename,
+        'title': page_title.decode('utf-8'),
+        'sub'  : []}
       self.current_nav.append(navigation_item)
       self.current_nav = navigation_item['sub']
 
-      tags = soup.find('span', attrs={'class':'taxonomy'})
-      if tags:
-	for a in tags.findAll('a', rel='tag'):
-	  s = a.renderContents()
-	  if s not in self.info_tags:
-	    self.info_tags.append(s)
+      numsection=0
+      for section in soup.findAll('section', attrs={'class':has_class('field')}):
+        for a in section.findAll('a'):
+          s = a.renderContents()
+          if numsection == 0:
+            if s == "New Author":
+              pass
+            elif s not in self.info_author:
+              self.info_author.append(s)
+              print "Author: %s" % s
+          elif s not in self.info_tags:
+            self.info_tags.append(s)
+            print "Tag: %s" % s
+        numsection += 1
 
-      if not self.info_author:
-	try:
-	  # Try first tag as author
-	  self.info_author = self.info_tags[0]
-	  if self.info_author == "New Author":
-	    self.info_author = None
-	except:
-	  pass
-	if not self.info_author and submitted:
-	  # Use the submitter name
-	  a = submitted.find('a', title="View user profile.")
-	  if not a: a = submitted.find('a')
-	  if a:
-	    self.info_author = a.renderContents()
-	  else:
-	    a, b, info = submitted.renderContents().partition("ubmitted by ")
-	    if not info:
-	      a, b, info = submitted.renderContents().partition("wned by ")
-	    info, a, b = info.partition(" on")
-	    if len(info): self.info_author = info
+      if not self.info_author and submitted:
+        # Use the submitter name
+        a = submitted.find('span', attrs={'rel':'author'})
+        if a:
+          s = a.renderContents()
+          if s not in self.info_author:
+            self.info_author.append(s)
+        else:
+          a, b, info = submitted.renderContents().partition("ubmitted by ")
+          if not info:
+            a, b, info = submitted.renderContents().partition("wned by ")
+          info, a, b = info.partition(" on")
+          if len(info) and info not in self.info_author:
+            self.info_author.append(info)
 
     if submitted:
       submitted = submitted.renderContents()
 
-    self.soup_remove_before(soup, soup.find('span', attrs={'class':'print-link'}))
-    self.soup_remove_after (soup, soup.find('div',  attrs={'class':'book-navigation'}))
+    self.soup_remove_before(soup, soup.find('span',   attrs={'class':'print-link'}))
+    self.soup_remove_after (soup, soup.find('footer', attrs={'class':'book-navigation'}))
 
     srv  = soup.find('div', attrs={'class':'service-links'})
     if srv:
       srv.extract();
 
-    nav  = soup.find('div', attrs={'class':'book-navigation'})
+    nav  = soup.find('footer', attrs={'class':'book-navigation'})
     if nav:
       list = nav.find('ul')
       if list:
-	#for line in list.findAll("li"):
-	for line in nav.findAll('li', attrs={'class':'leaf'}):
-	  link  = line.find("a")
-	  title = link.renderContents()
-	  url   = link["href"]
-	  url = urljoin(baseurl, url)
-	  self.parse_url(url)
-	for line in nav.findAll('li', attrs={'class':'collapsed'}):
-	  link  = line.find("a")
-	  title = link.renderContents()
-	  url   = link["href"]
-	  url = urljoin(baseurl, url)
-	  self.parse_url(url)
+        #for line in list.findAll("li"):
+        for line in nav.findAll('li', attrs={'class':has_class('leaf')}):
+          link  = line.find("a")
+          title = link.renderContents()
+          url   = link["href"]
+          url = urljoin(baseurl, url)
+          self.parse_url(url)
+        for line in nav.findAll('li', attrs={'class':has_class('collapsed')}):
+          link  = line.find("a")
+          title = link.renderContents()
+          url   = link["href"]
+          url = urljoin(baseurl, url)
+          self.parse_url(url)
       nav.extract()
     else:
       nav = soup.find('div',  attrs={'class': 'content'})
       if nav:
-	self.soup_remove_after (soup, nav)
-	div = nav.find('div', attrs={'class': 'vote-wrap'})
-	if div:
-	  font = div.findPreviousSibling('font')
-	  if font:
-	    self.soup_remove_after (soup, font)
-	    font.extract()
-	  else:
-	    self.soup_remove_after (soup, div.previousSibling)
-	    div.previousSibling.extract()
+        self.soup_remove_after (soup, nav)
+        div = nav.find('div', attrs={'class': 'vote-wrap'})
+        if div:
+          font = div.findPreviousSibling('font')
+          if font:
+            self.soup_remove_after (soup, font)
+            font.extract()
+          else:
+            self.soup_remove_after (soup, div.previousSibling)
+            div.previousSibling.extract()
 
     body = soup.find('body')
 
@@ -644,6 +649,7 @@ class TopShelf(Epub):
   def parse_soup(self, soup, filename, baseurl, output):
     old_nav = self.current_nav
 
+    #print "Layout: %s" % (self.layout)
     if self.layout == "TopShelf":
       result = self.parse_soup_topshelf(soup, filename, baseurl, output)
     else:
@@ -858,10 +864,10 @@ class TopShelf(Epub):
     if   info == "title":	self.info_title = value
     elif info == "lang":	pass
     elif info == "ident":	self.info_url = value
-    elif info == "subject":	self.info_tags = value
+    elif info == "subject":	self.info_tags = value.split(",")
     elif info == "description":	pass
     elif info == "relation":	pass
-    elif info == "creator":	self.info_author = value
+    elif info == "creator":	self.info_author = value.split(",")
     elif info == "publisher":	pass
     elif info == "date":	self.info_date = value
     elif info == "rights":	pass
@@ -870,10 +876,10 @@ class TopShelf(Epub):
     if   info == "title":	res = self.info_title.decode('utf-8')
     elif info == "lang":	res = "en"
     elif info == "ident":	res = self.info_url.encode('utf-8')
-    elif info == "subject":	res = ", ".join(self.info_tags).encode('utf-8')
+    elif info == "subject":	res = [i.encode('utf-8') for i in self.info_tags]
     elif info == "description":	res = ""
     elif info == "relation":	res = ""
-    elif info == "creator":	res = self.info_author.decode('utf-8')
+    elif info == "creator":	res = [i.decode('utf-8') for i in self.info_author]
     elif info == "publisher":	res = ""
     elif info == "date":	res = self.info_date.strftime("%Y-%d-%dT%H:%M:%S+00:00")
     elif info == "rights":	res = ""
@@ -900,7 +906,7 @@ class TopShelf(Epub):
       tag = tag.parent
 
 
-help = """NAME
+helpmsg = """NAME
 
     topshelf -h
     topshelf [OPTIONS ...] [--] URL ...
@@ -985,7 +991,7 @@ def main(argv):
       i = i + 1
       outfile = argv[i]
     elif arg == "-h" or arg == "--help":
-      print help
+      print helpmsg
       return 0
     elif arg == "-r" or arg == "--raw":
       layout = None
@@ -1119,7 +1125,7 @@ def main(argv):
     ts.parse_url(u, output = not skip)
 
   if not outfile:
-    author = make_filename(ts.info_author)
+    author = make_filename(" ".join(ts.info_author))
     title = make_filename(ts.info_title)
     if not title:
       title = os.path.basename(url[0])
@@ -1201,7 +1207,7 @@ class tk_gui:
       print "Url:      %s" % (u)
       ts.parse_url(u, output = not skip)
 
-    author = make_filename(ts.info_author)
+    author = make_filename(" ".join(ts.info_author))
     title = make_filename(ts.info_title)
     if not title:
       title = os.path.basename(url[0])
